@@ -1,0 +1,375 @@
+### EXTRACTING TWEETS AND USING LEXICON BASED APPROACH TO CATEGORISE EMOTIONS : 
+Primary Model:
+#Check Data Structure
+
+
+```{r}
+load(file="tweets.df.RData")
+str(tweets.df)
+```
+
+
+#Load tm Package
+```{r}
+library(tm)
+```
+
+
+##CREATE A CORPUS OF TEXT
+```{r}
+tweets_corpus<- VCorpus(VectorSource(tweets.df$text))
+```
+#Print Number of Documents 
+```{r}
+print(tweets_corpus)
+```
+#TO GET SPECIFIC MESSAGE SUMMARY
+```{r}
+inspect(tweets_corpus[1:2])
+```
+#TO READ SPECIFIC MESSAGE TEXT
+```{r}
+as.character(tweets_corpus[[4]])
+```
+
+
+##CLEANING THE CORPUS
+#TO AVOID TOLOWER ERROR WHEN FINDING AN EMOJI IN TEXT (NON GRAPHICAL TEXT) I FOUND THIS FUNCTION USED TO SKIP ERROR AND CONTINUE TOLOWER
+```{r}
+tryTolower = function(x)
+{
+  # create missing value
+  # this is where the returned value will be
+  y = NA
+  # tryCatch error
+  try_error = tryCatch(tolower(x), error = function(e) e)
+  # if not an error
+  if (!inherits(try_error, "error"))
+    y = tolower(x)
+  return(y)
+}
+```
+#NOW USE THE TOLOWER WITH THE TRYLOWER FUNCTION TO LOWERCASE THE CORPUS TEXT
+```{r}
+tweets_corpus_clean<-sapply(tweets_corpus, function(x) tryTolower(x))
+
+
+```
+#CHANGE TYPE TO VCORPUS
+```{r}
+tweets_corpus_clean<- VCorpus(VectorSource(tweets_corpus_clean))
+tweets_corpus_clean<- tm_map(tweets_corpus_clean,content_transformer(tolower))
+```
+#TO CHECK LOWERCASE IS DONE
+```{r}
+as.character(tweets_corpus[[12]])
+as.character(tweets_corpus_clean[[12]])
+```
+#REMOVE NUMBERS FROM CORPUS TEXT
+```{r}
+tweets_corpus_clean<- tm_map(tweets_corpus_clean,removeNumbers)
+```
+#CHECK NUMBERS ARE REMOVED
+```{r}
+as.character(tweets_corpus[[11]])
+as.character(tweets_corpus_clean[[11]])
+```
+#REMOVE STOP WORDS FROM CORPUS TEXT
+```{r}
+tweets_corpus_clean<-tm_map(tweets_corpus_clean,removeWords,stopwords())
+```
+#CHECK STOP WORDS ARE REMOVED
+```{r}
+as.character(tweets_corpus[[11]])
+as.character(tweets_corpus_clean[[11]])
+```
+#CREATE A REPLACE PUNCYUATION FUNCTION (REPLACE ... WITH BLANKS RATEHR THAN REMOVE)
+```{r}
+replacePunctuation<- function(x){
+  gsub("[[:punct:]]+"," ",x)  
+}
+```
+#TEST FUNCTION
+```{r}
+replacePunctuation("Give me a .. break")
+```
+#REMOVE PUNCTUATION FROM CORPUS TEXT 
+```{r}
+tweets_corpus_clean<-tm_map(tweets_corpus_clean,content_transformer(replacePunctuation))
+```
+#CHECK PUNCTUATIONS ARE REPLACED BY BLANKS
+```{r}
+as.character(tweets_corpus[[11]])
+as.character(tweets_corpus_clean[[11]])
+```
+#STRIP WHITE SPACE FROM THE CORPUS TEXT
+```{r}
+tweets_corpus_clean<-tm_map(tweets_corpus_clean,stripWhitespace)
+```
+#CHECK WHITE SPACE IS REMOVED
+```{r}
+as.character(tweets_corpus[[6]])
+as.character(tweets_corpus_clean[[6]])
+```
+#Create a Copy of corpus to use as dictionary for stem completion
+```{r}
+copy<-tweets_corpus_clean
+```
+#STEMMING OF THE WORDS IN THE CORPUS TEXT
+```{r}
+library(SnowballC)
+tweets_corpus_clean<-tm_map(tweets_corpus_clean, stemDocument,language="english")
+```
+#CHECK STEMMING OF WORDS
+```{r}
+as.character(tweets_corpus[[29]])
+as.character(tweets_corpus_clean[[29]])
+```
+#Create Stem Completion function
+```{r}
+stemCompletion_mod <- function(x,dict=copy) {
+  PlainTextDocument(stripWhitespace(paste(stemCompletion(unlist(strsplit(as.character(x)," ")),dictionary=copy, type="prevalent"),sep="", collapse=" ")))
+}
+```
+#Apply Stemcompletion
+```{r}
+tweets_corpus_clean<- lapply(tweets_corpus_clean, stemCompletion_mod,copy)
+```
+#CHECK STEM Completion OF WORDS
+```{r}
+as.character(tweets_corpus[[29]])
+as.character(tweets_corpus_clean[[29]])
+```
+#Create type corpus again 
+```{r}
+tweets_corpus_clean<- VCorpus(VectorSource(tweets_corpus_clean))
+```
+##TOKENIZATION OF TEXT DOC INTO WORDS
+#CREATE A DOCUMENT TERM MATRIX
+```{r}
+tweets_dtm<-DocumentTermMatrix(tweets_corpus_clean)
+```
+##VISUALIZE TEXT DATA
+#LOAD THE WORDCLOUD PACKAGE
+```{r}
+library(wordcloud)
+```
+#CHECK THE MOST FREQUENT WORDS
+```{r}
+wordcloud(tweets_corpus_clean,min.freq = 50,random.order = FALSE,scale=c(7, .6),colors=brewer.pal(6, "Dark2"))
+```
+
+
+
+
+
+
+
+
+##REDUCE THE DATA (REMOVE WORDS OF FEW FREQUENCY)
+#GET WORDS WITH THE LEAST FREQUENCY OF 5 TIMES
+```{r}
+tweets_freq_words<-findFreqTerms(tweets_dtm,5)
+```
+#REDUCE THE DTM SIZE WITH THE MOST IMPORTANT FREQUENT WORDS
+```{r}
+tweets_dtm_reduced<-tweets_dtm[,tweets_freq_words]
+```
+## Apply TIDYTEXT PACKAGE SENTIMENT ANALYSIS, one time using NRC lexicon and another time using Bing Lexicon
+#LOAD tidytext package
+```{r}
+library(tidytext)
+library(dplyr)
+```
+
+
+##SENTIMENTS ACCORDING TO NRC LEXICON 
+```{r}
+ap_td <- tidy(tweets_dtm_reduced)
+
+
+nrc <- sentiments %>%
+  filter(lexicon == "nrc") %>%
+  select(word, sentiment)
+
+
+ap_sentiments_nrc <- ap_td %>%
+  inner_join(nrc, by = c(term = "word"))
+
+
+ap_sentiments_nrc
+```
+#NOTICE THAT DOCUMENTS NUMBER WILL BE LESS THAN YOUR CORPUS BECAUSE OF ONLY MATCHED WORDS DOCUMENTS TO THE LEXICON ARE TAKEN INTO CONSIDERATION
+```{r}
+length(unique(ap_sentiments_nrc$document))
+```
+#AGGREGATE SENTIMENTS FOR EACH TWEET
+Check Data Structure of ap_sentiments
+```{r}
+str(ap_sentiments_nrc)
+```
+#Change Sentiments into Character
+```{r}
+ap_sentiments_nrc$sentiment <- as.character(ap_sentiments_nrc$sentiment)
+```
+#Seperate Sentiments including emotions Variables into Columns and count 1 for each 
+```{r}
+ap_sentiments_nrc$positive <- ifelse(ap_sentiments_nrc$sentiment == "positive",as.numeric(1),0)
+ap_sentiments_nrc$negative <- ifelse(ap_sentiments_nrc$sentiment == "negative",as.numeric(1),0)
+ap_sentiments_nrc$trust <- ifelse(ap_sentiments_nrc$sentiment == "trust",as.numeric(1),0)
+ap_sentiments_nrc$anger <- ifelse(ap_sentiments_nrc$sentiment == "anger",as.numeric(1),0)
+ap_sentiments_nrc$anticipation <- ifelse(ap_sentiments_nrc$sentiment == "anticipation",as.numeric(1),0)
+ap_sentiments_nrc$disgust <- ifelse(ap_sentiments_nrc$sentiment == "disgust",as.numeric(1),0)
+ap_sentiments_nrc$fear <- ifelse(ap_sentiments_nrc$sentiment == "fear",as.numeric(1),0)
+ap_sentiments_nrc$joy <- ifelse(ap_sentiments_nrc$sentiment == "joy",as.numeric(1),0)
+ap_sentiments_nrc$sadness <- ifelse(ap_sentiments_nrc$sentiment == "sadness",as.numeric(1),0)
+ap_sentiments_nrc$surprise <- ifelse(ap_sentiments_nrc$sentiment == "surprise",as.numeric(1),0)
+```
+#Check head of ap_sentiments
+```{r}
+head(ap_sentiments_nrc,30)
+```
+#Aggregate sum of sentiment and emotion for each document
+```{r}
+library(dplyr)
+aggr_sentiments_nrc<-ap_sentiments_nrc%>%
+  select(document,positive,negative,trust,anger,anticipation,disgust,fear,joy,sadness,surprise)%>%
+  group_by(document)%>%
+  summarise(positive=sum(positive),negative=sum(negative),trust=sum(trust),anger=sum(anger),
+            anticipation=sum(anticipation),disgust=sum(disgust),fear=sum(fear),joy=sum(joy),
+            sadness=sum(sadness),surprise=sum(surprise),positive_negative_total=positive+negative,emotions_total=sum(trust+anger+anticipation+disgust+fear+joy+sadness+surprise))
+```
+#Aggreagte Percentage of each tweet "percentage_sentiments_nrc"
+```{r}
+percentage_sentiments_nrc<-aggr_sentiments_nrc%>%
+    group_by(document)%>%
+  summarise(positive=(positive/(positive_negative_total)*100),negative=(negative/(positive_negative_total)*100),
+            trust=((trust/emotions_total)*100),
+            anger=((anger/emotions_total)*100),
+            anticipation=((anticipation/emotions_total)*100),
+            disgust=((disgust/emotions_total)*100),
+            fear=((fear/emotions_total)*100),
+            joy=((joy/emotions_total)*100),
+            sadness=((sadness/emotions_total)*100),
+            surprise=((surprise/emotions_total)*100))
+```
+#Check tail of "percentage_sentiments_nrc"
+```{r}
+tail(percentage_sentiments_nrc,50)
+```
+#Replace NaN values with 0
+```{r}
+percentage_sentiments_nrc[is.na(percentage_sentiments_nrc)]<-0
+```
+#Example of Percentage_sentiments_nrc
+Lets Take tweet having different words sentiments, tweet 988
+This shows the percentage distribuition of POSITIVE - NEGATIVE     and  DISTRIBUTION OF EMOTIONS 
+```{r}
+subset(percentage_sentiments_nrc,percentage_sentiments_nrc$document==988)
+subset(percentage_sentiments_nrc,percentage_sentiments_nrc$document==223)
+```
+#The #988 and #223 tweet text
+```{r}
+as.character(tweets_corpus[[988]])
+as.character(tweets_corpus[[223]])
+```
+#Aggregate Percentage of sentiments for all the corpus of tweets "total_percentage_sentiments_nrc"
+```{r}
+total_percentage_sentiments_nrc<-aggr_sentiments_nrc%>%
+  select(-document)%>%
+  summarise(positive=(sum(positive)/sum((positive_negative_total))*100),negative=(sum(negative)/sum((positive_negative_total))*100),
+          trust=((sum(trust)/sum(emotions_total))*100),
+          anger=((sum(anger)/sum(emotions_total))*100),
+          anticipation=((sum(anticipation)/sum(emotions_total))*100),
+          disgust=((sum(disgust)/sum(emotions_total))*100),
+          fear=((sum(fear)/sum(emotions_total))*100),
+          joy=((sum(joy)/sum(emotions_total))*100),
+          sadness=((sum(sadness)/sum(emotions_total))*100),
+          surprise=((sum(surprise)/sum(emotions_total))*100))
+```
+#Check the total sentiments for this corpus of tweets according to NRC lexicon
+```{r}
+total_percentage_sentiments_nrc
+```
+  
+#SENTIMENTS ACCORDING TO BING(OPINION) Lexicon
+```{r}
+ap_td <- tidy(tweets_dtm_reduced)
+
+
+bing <- sentiments %>%
+  filter(lexicon == "bing") %>%
+  select(word, sentiment)
+
+
+ap_sentiments_bing <- ap_td %>%
+  inner_join(bing, by = c(term = "word"))
+
+
+ap_sentiments_bing
+```
+#NOTICE THAT DOCUMENTS NUMBER Maybe LESS THAN YOUR CORPUS BECAUSE OF ONLY MATCHED WORDS DOCUMENTS TO THE LEXICON ARE TAKEN INTO CONSIDERATION
+```{r}
+length(unique(ap_sentiments_bing$document))
+```
+#AGGREGATE SENTIMENTS FOR EACH TWEET
+Check Data Structure of ap_sentiments
+```{r}
+str(ap_sentiments_bing)
+```
+#Change Sentiments into Character
+```{r}
+ap_sentiments_bing$sentiment <- as.character(ap_sentiments_bing$sentiment)
+```
+#Seperate Sentiments including emotions Variables into Columns and count 1 for each 
+```{r}
+ap_sentiments_bing$positive <- ifelse(ap_sentiments_bing$sentiment == "positive",as.numeric(1),0)
+ap_sentiments_bing$negative <- ifelse(ap_sentiments_bing$sentiment == "negative",as.numeric(1),0)
+```
+#Check head of ap_sentiments
+```{r}
+head(ap_sentiments_bing,30)
+```
+#Aggregate sum of sentiment and emotion for each document
+```{r}
+library(dplyr)
+aggr_sentiments_bing<-ap_sentiments_bing%>%
+  select(document,positive,negative)%>%
+  group_by(document)%>%
+  summarise(positive=sum(positive),negative=sum(negative),positive_negative_total=positive+negative)
+```
+#Aggreagte Percentage of each tweet
+```{r}
+percentage_sentiments_bing<-aggr_sentiments_bing%>%
+  group_by(document)%>%
+  summarise(positive=(positive/(positive_negative_total)*100),negative=(negative/(positive_negative_total)*100))
+```
+#Check tail of aggr_sentiments
+```{r}
+tail(percentage_sentiments_bing,50)
+```
+#Replace NaN values with 0
+```{r}
+percentage_sentiments_bing[is.na(percentage_sentiments_bing)]<-0
+```
+#Example of Percentage_sentiments
+Lets Take tweet having different words sentiments, tweet 988
+This shows the percentage distribuition of POSITIVE - NEGATIVE     and  DISTRIBUTION OF EMOTIONS 
+```{r}
+subset(percentage_sentiments_bing,percentage_sentiments_bing$document==988)
+subset(percentage_sentiments_bing,percentage_sentiments_bing$document==223)
+```
+#The #988 and #223 tweet text
+```{r}
+as.character(tweets_corpus[[988]])
+as.character(tweets_corpus[[223]])
+```
+#Aggregate Percentage of sentiments for all the corpus of tweets "total_percentage_sentiments_bing"
+```{r}
+total_percentage_sentiments_bing<-aggr_sentiments_bing%>%
+  select(-document)%>%
+  summarise(positive=(sum(positive)/sum((positive_negative_total))*100),negative=(sum(negative)/sum((positive_negative_total))*100))
+```
+#Check the total sentiments for this corpus of tweets according to Bing lexicon
+```{r}
+total_percentage_sentiments_bing
