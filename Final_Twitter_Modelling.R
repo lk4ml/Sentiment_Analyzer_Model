@@ -98,7 +98,7 @@ tweets_final2<-tm_map(tweets_stem,stripWhitespace)
 ---------------------------------
   
   
-  Train_dtm<-DocumentTermMatrix(tweets_final,control=list(weighting=weightBin))
+Train_dtm<-DocumentTermMatrix(tweets_final,control=list(weighting=weightBin))
 train_dtm_sparse_99<-removeSparseTerms(Train_dtm,0.995)
 dim(train_dtm_sparse_99)
 ## for using for later training purposes :
@@ -127,7 +127,7 @@ dim(train_data_99)
   
   #Now convert this test data as well into the same format :)
   
-  Test_dtm<-DocumentTermMatrix(tweets_final2,control=list(weighting=weightBin,
+Test_dtm<-DocumentTermMatrix(tweets_final2,control=list(weighting=weightBin,
                                                           dictionary=train_bag_99))
 inspect(Test_dtm[1:10,2:20])
 
@@ -145,12 +145,13 @@ library(kernlab)
 bow_svm<-ksvm(Sentiments~.,data=train_data_99)
 test1_predict<-predict(bow_svm,newdata=Test_comb_data)
 
-Conf_SVM<-confusionMatrix(test1_predict,Test_comb_data[,1],positive="positive",
+Conf_SVM<-confusionMatrix(test2_predict,Test_comb_data[,1],positive="positive",
                           dnn=c("Prediction","TRUE"))
 Conf_SVM
---------------------------
+
+-------------------------------------------------------------
   
-  ## Naive Bayes Classifier :
+## Naive Bayes Classifier :
   
 bow_nb<-naiveBayes(Sentiments~.,data = train_data_99)
 test2_predict<-predict(bow_nb,newdata=Test_comb_data)
@@ -160,9 +161,11 @@ Conf_NB
 
 ---------------------------
   
-  ## Our Project_Data Prediction : 
+## Our Project_Data Prediction : 
   
-project<-read.csv("Jetblue_Project_5000.csv",header = TRUE,sep=",")
+project_earlier<-read.csv("Jetblue_Project_5000.csv",header = TRUE,sep=",")
+
+project<-read.csv("cleaned_tweets.csv",header = TRUE,sep=",")
 
 str(project)
 colnames(project)
@@ -199,6 +202,7 @@ teek<-function(x) {
   
 }
 
+library(tm)
 live_corpus<-Corpus(VectorSource(project[,2]))
 tweets_Final<-teek(live_corpus)
 str(tweets_Final)
@@ -218,7 +222,7 @@ table(Final_Predict_NB)
 bow_svm<-ksvm(Sentiments~.,data=train_data_99)
 test1_predict<-predict(bow_svm,newdata=Test_comb_data)
 
-Conf_SVM<-confusionMatrix(test1_predict,Test_comb_data[,1],positive="positive",
+Conf_SVM<-confusionMatrix(test2_predict,Test_comb_data[,1],positive="positive",
                           dnn=c("Prediction","TRUE"))
 Conf_SVM
 
@@ -234,7 +238,20 @@ train_Data_new$Sentiments<-ifelse(train_Data_new$Sentiments=="negative",0,1)
 
 head(train_Data_new$Sentiments,10)
 
-
-
 --------------------------------------------------
   
+glm_model<-glm(Sentiments~.,family=binomial(link=logit),data=train_Data_new)
+
+test2_predict<-predict(glm_model,newdata=Test_comb_data)
+
+test3_predict<-predict(glm_model, newdata = Test_comb_data,
+                       type ="response")
+test3_predict<-ifelse(test3_predict>=.5,1,0)
+table(Test_comb_data$Sentiments)
+
+Final_Predict_GLM<-predict(glm_model,data=DTM_FINAL)
+
+
+Final_Predict_GLM<-ifelse(Final_Predict_GLM>=.5,1,0)  
+table(Final_Predict_GLM)
+
